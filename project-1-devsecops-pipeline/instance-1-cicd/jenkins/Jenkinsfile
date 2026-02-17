@@ -1,0 +1,102 @@
+pipeline {
+    agent any
+    
+    environment {
+        DOCKER_REGISTRY = 'your-docker-registry'  // Update with your registry
+        APP_VERSION = "${env.BUILD_NUMBER}"
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                echo 'Checking out code from Git...'
+                git branch: 'main',
+                    url: 'https://github.com/YOUR-USERNAME/devops-portfolio.git'
+            }
+        }
+        
+        stage('Build Docker Images') {
+            steps {
+                echo 'Building Docker images...'
+                script {
+                    dir('project-1-devsecops-pipeline/instance-2-apps/applications') {
+                        sh 'docker build -t flask-app:${APP_VERSION} -t flask-app:latest flask-app/'
+                        sh 'docker build -t nodejs-app:${APP_VERSION} -t nodejs-app:latest nodejs-app/'
+                        sh 'docker build -t go-app:${APP_VERSION} -t go-app:latest go-app/'
+                    }
+                }
+            }
+        }
+        
+        stage('Test') {
+            steps {
+                echo 'Running tests...'
+                script {
+                    sh 'echo "Unit tests would run here"'
+                    sh 'echo "Integration tests would run here"'
+                }
+            }
+        }
+        
+        stage('Security Scan') {
+            steps {
+                echo 'Scanning for vulnerabilities...'
+                script {
+                    sh 'echo "Security scanning with Trivy would run here"'
+                    // sh 'trivy image flask-app:latest'
+                }
+            }
+        }
+        
+        stage('Push Images') {
+            steps {
+                echo 'Pushing images to registry...'
+                script {
+                    // Uncomment when registry is configured
+                    // sh 'docker push flask-app:${APP_VERSION}'
+                    // sh 'docker push nodejs-app:${APP_VERSION}'
+                    // sh 'docker push go-app:${APP_VERSION}'
+                    sh 'echo "Would push images to registry here"'
+                }
+            }
+        }
+        
+        stage('Deploy') {
+            steps {
+                echo 'Deploying applications with Ansible...'
+                script {
+                    dir('project-1-devsecops-pipeline/instance-1-cicd/ansible') {
+                        sh 'ansible-playbook -i inventory/hosts playbooks/deploy.yml'
+                    }
+                }
+            }
+        }
+        
+        stage('Health Check') {
+            steps {
+                echo 'Performing health checks...'
+                script {
+                    sh '''
+                        echo "Checking application health..."
+                        # Add actual health check commands here
+                    '''
+                }
+            }
+        }
+    }
+    
+    post {
+        success {
+            echo 'Pipeline completed successfully!'
+            // Add notification here (Slack, email, etc.)
+        }
+        failure {
+            echo 'Pipeline failed!'
+            // Add failure notification here
+        }
+        always {
+            echo 'Cleaning up...'
+            // Clean up workspace if needed
+        }
+    }
+}

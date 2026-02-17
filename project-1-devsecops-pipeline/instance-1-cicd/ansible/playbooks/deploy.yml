@@ -1,0 +1,71 @@
+---
+- name: Deploy Microservices
+  hosts: app_servers
+  become: yes
+  
+  vars:
+    docker_images:
+      - name: flask-app
+        port: 8001
+      - name: nodejs-app
+        port: 8002
+      - name: go-app
+        port: 8003
+  
+  tasks:
+    - name: Ensure Docker is installed
+      apt:
+        name: docker.io
+        state: present
+        update_cache: yes
+    
+    - name: Ensure Docker service is running
+      service:
+        name: docker
+        state: started
+        enabled: yes
+    
+    - name: Stop existing containers
+      docker_container:
+        name: "{{ item.name }}"
+        state: stopped
+      loop: "{{ docker_images }}"
+      ignore_errors: yes
+    
+    - name: Remove existing containers
+      docker_container:
+        name: "{{ item.name }}"
+        state: absent
+      loop: "{{ docker_images }}"
+      ignore_errors: yes
+    
+    - name: Pull/Deploy Docker containers
+      docker_container:
+        name: "{{ item.name }}"
+        image: "{{ item.name }}:latest"
+        state: started
+        restart_policy: always
+        ports:
+          - "{{ item.port }}:{{ item.port }}"
+      loop: "{{ docker_images }}"
+    
+    - name: Wait for containers to be healthy
+      wait_for:
+        host: localhost
+        port: "{{ item.port }}"
+        delay: 5
+        timeout: 30
+      loop: "{{ docker_images }}"
+    
+    - name: Health check
+      uri:
+        url: "http://localhost:{{ item.port }}/health"
+        status_code: 200
+      loop: "{{ docker_images }}"
+      register: health_check
+      retries: 3
+      delay: 5
+    
+    - name: Display deployment status
+      debug:
+        msg: "All applications deployed successfully!"

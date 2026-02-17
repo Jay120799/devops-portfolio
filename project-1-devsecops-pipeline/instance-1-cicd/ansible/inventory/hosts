@@ -1,0 +1,5 @@
+[app_servers]
+app-server ansible_host=INSTANCE2-IP ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/your-key.pem
+
+[app_servers:vars]
+ansible_python_interpreter=/usr/bin/python3
