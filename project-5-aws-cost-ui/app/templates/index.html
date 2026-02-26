@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AWS Cost per Hour – Dashboard</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --card: #1a2332;
+      --border: #2d3a4f;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --accent: #58a6ff;
+      --green: #3fb950;
+      --amber: #d29922;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      margin: 0;
+      padding: 1.5rem;
+      line-height: 1.5;
+    }
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 600;
+      margin: 0 0 0.5rem 0;
+    }
+    .sub {
+      color: var(--muted);
+      font-size: 0.875rem;
+      margin-bottom: 1.5rem;
+    }
+    .toolbar {
+      display: flex;
+      gap: 0.75rem;
+      align-items: center;
+      margin-bottom: 1.5rem;
+      flex-wrap: wrap;
+    }
+    button {
+      background: var(--accent);
+      color: var(--bg);
+      border: none;
+      padding: 0.5rem 1rem;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 0.875rem;
+    }
+    button:hover { opacity: 0.9; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    button.secondary {
+      background: var(--card);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+    }
+    .card .label { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; margin-bottom: 0.25rem; }
+    .card .value { font-size: 1.5rem; font-weight: 700; color: var(--green); }
+    .card .value.total { color: var(--accent); }
+    section {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+      margin-bottom: 1rem;
+    }
+    section h2 { font-size: 1rem; margin: 0 0 0.75rem 0; color: var(--muted); }
+    table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+    th, td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border); }
+    th { color: var(--muted); font-weight: 600; }
+    .num { text-align: right; }
+    .state-running { color: var(--green); }
+    .state-stopped { color: var(--amber); }
+    .loading { color: var(--muted); }
+    .error { color: #f85149; }
+    .note { font-size: 0.75rem; color: var(--muted); margin-top: 1rem; }
+  </style>
+</head>
+<body>
+  <h1>AWS Cost per Hour</h1>
+  <p class="sub">Estimated $/hr for EC2 (running) and EBS. Approximate us-east-1 Linux on-demand.</p>
+
+  <div class="toolbar">
+    <button id="btnRun">Run report & refresh</button>
+    <button id="btnLoad" class="secondary">Load latest report</button>
+    <span id="status" class="muted"></span>
+  </div>
+
+  <div class="cards">
+    <div class="card">
+      <div class="label">EC2 total ($/hr)</div>
+      <div class="value" id="ec2Total">–</div>
+    </div>
+    <div class="card">
+      <div class="label">EBS total ($/hr)</div>
+      <div class="value" id="ebsTotal">–</div>
+    </div>
+    <div class="card">
+      <div class="label">Combined ($/hr)</div>
+      <div class="value total" id="combinedTotal">–</div>
+    </div>
+  </div>
+
+  <section>
+    <h2>EC2 instances (running, cost per hour)</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Instance ID</th>
+          <th>State</th>
+          <th>Type</th>
+          <th class="num">$/hr</th>
+        </tr>
+      </thead>
+      <tbody id="ec2Table">
+        <tr><td colspan="4" class="loading">Load or run a report to see data.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>EBS volumes (cost per hour)</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Volume ID</th>
+          <th>Size (GB)</th>
+          <th>State</th>
+          <th class="num">$/hr</th>
+        </tr>
+      </thead>
+      <tbody id="ebsTable">
+        <tr><td colspan="4" class="loading">Load or run a report to see data.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <p class="note" id="reportInfo"></p>
+
+  <script>
+    const statusEl = document.getElementById('status');
+    const ec2TotalEl = document.getElementById('ec2Total');
+    const ebsTotalEl = document.getElementById('ebsTotal');
+    const combinedTotalEl = document.getElementById('combinedTotal');
+    const ec2Table = document.getElementById('ec2Table');
+    const ebsTable = document.getElementById('ebsTable');
+    const reportInfo = document.getElementById('reportInfo');
+    const btnRun = document.getElementById('btnRun');
+    const btnLoad = document.getElementById('btnLoad');
+
+    function setStatus(msg, isError) {
+      statusEl.textContent = msg;
+      statusEl.className = isError ? 'error' : '';
+    }
+
+    function render(data) {
+      const ec2Total = parseFloat(data.ec2_total_usd_per_hr) || 0;
+      const ebsTotal = parseFloat(data.ebs_total_usd_per_hr) || 0;
+      const combined = ec2Total + ebsTotal;
+
+      ec2TotalEl.textContent = '$' + ec2Total.toFixed(4);
+      ebsTotalEl.textContent = '$' + ebsTotal.toFixed(4);
+      combinedTotalEl.textContent = '$' + combined.toFixed(4);
+
+      ec2Table.innerHTML = data.ec2_instances.length === 0
+        ? '<tr><td colspan="4" class="loading">No running EC2 instances with cost data.</td></tr>'
+        : data.ec2_instances.map(r => `
+            <tr>
+              <td>${r.instance_id}</td>
+              <td class="state-${r.state}">${r.state}</td>
+              <td>${r.instance_type}</td>
+              <td class="num">$${r.usd_per_hr}/hr</td>
+            </tr>
+          `).join('');
+
+      ebsTable.innerHTML = data.ebs_volumes.length === 0
+        ? '<tr><td colspan="4" class="loading">No EBS volumes.</td></tr>'
+        : data.ebs_volumes.map(r => `
+            <tr>
+              <td>${r.volume_id}</td>
+              <td>${r.size_gb}</td>
+              <td>${r.state}</td>
+              <td class="num">$${r.usd_per_hr}/hr</td>
+            </tr>
+          `).join('');
+
+      reportInfo.textContent = data.report_file
+        ? 'Report: ' + data.report_file + (data.generated ? ' • Generated: ' + data.generated : '')
+        : 'No report file found. Run the report on this server (AWS CLI configured).';
+    }
+
+    async function runReport() {
+      btnRun.disabled = true;
+      setStatus('Running report…');
+      try {
+        const r = await fetch('/api/run');
+        const data = await r.json();
+        if (!r.ok) {
+          setStatus(data.error || 'Request failed', true);
+          return;
+        }
+        setStatus('Done.');
+        render(data);
+      } catch (e) {
+        setStatus('Error: ' + e.message, true);
+      } finally {
+        btnRun.disabled = false;
+      }
+    }
+
+    async function loadLatest() {
+      btnLoad.disabled = true;
+      setStatus('Loading…');
+      try {
+        const r = await fetch('/api/data');
+        const data = await r.json();
+        setStatus('Loaded.');
+        render(data);
+      } catch (e) {
+        setStatus('Error: ' + e.message, true);
+      } finally {
+        btnLoad.disabled = false;
+      }
+    }
+
+    btnRun.addEventListener('click', runReport);
+    btnLoad.addEventListener('click', loadLatest);
+
+    loadLatest();
+  </script>
+</body>
+</html>
